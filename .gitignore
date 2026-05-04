@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+ui/node_modules/
+
+# Environment — never commit secrets
+.env
+
+# Build output
+ui/dist/
+ui/.vite/
+
+# Data — Qdrant storage and uploads are local only
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Editor
+.vscode/
+.idea/
