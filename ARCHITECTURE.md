@@ -40,8 +40,9 @@ flowchart LR
     FU[File Upload] --> PL
 
     PL[pipeline.js\nOrchestrator] --> CK[chunk.js\nHeading-aware\n~250 tokens]
-    CK --> EM[embed.js\ngemini-embedding-001]
+    CK --> EM[embed.js\ngemini-embedding-001\nconcurrency=3, retry 429]
     EM --> QD[(Qdrant\nteam-default)]
+    PL --> DB[(SQLite\ningested_pages\ncheckpoint)]
 ```
 
 ---
@@ -110,17 +111,19 @@ query
 
 ### Connector Architecture
 
-Each source is a class extending `BaseConnector` with a single required method: `fetchDocuments()`. The ingestion pipeline calls it without knowing the source type.
+Each source is a class extending `BaseConnector`. The pipeline iterates documents via `streamDocuments()` — an async generator so each page is fetched, embedded, and upserted before the next is fetched. This keeps memory low and makes ingestion resumable.
 
 ```
 BaseConnector
-  ├── ConfluenceConnector   — Confluence REST API v2, page tree traversal
+  ├── ConfluenceConnector   — Confluence REST API v2, streaming page-tree traversal, retry on 429/5xx
   ├── JiraConnector         — Jira REST API v3, ADF-to-text extraction
   ├── SharePointConnector   — Microsoft Graph API, auto token refresh
   └── FileUploadConnector   — PDF (pdf-parse), Word (mammoth), Excel (xlsx), txt
 ```
 
-Adding a new source: implement `fetchDocuments()`, return the standard document shape, register in `pipeline.js`. No other code changes needed.
+`BaseConnector` provides a default `streamDocuments()` that wraps `fetchDocuments()` for connectors that don't need streaming. To get resumability and per-page progress, implement `streamDocuments()` directly (as `ConfluenceConnector` does).
+
+Adding a new source: extend `BaseConnector`, implement `streamDocuments()` (or `fetchDocuments()` for simpler sources), register in `pipeline.js`.
 
 ---
 
@@ -134,9 +137,12 @@ Adding a new source: implement `fetchDocuments()`, return the standard document 
 conversations  (id, created_at, workspace_id)
 messages       (id, conversation_id, role, content, created_at)
 search_contexts(id, message_id, query, results_json)
+ingested_pages (page_id, source_type, collection, ingested_at)  -- PRIMARY KEY (page_id, collection)
 ```
 
 `search_contexts` records what was retrieved for each answer — useful for offline evaluation and future debugging.
+
+`ingested_pages` is the ingestion checkpoint: a page marked here is skipped on the next sync. Confluence still recurses into skipped pages' children to pick up newly added sub-pages.
 
 **In Phase 2:** Migrate to PostgreSQL when multi-team concurrency and cross-workspace queries are needed.
 

@@ -50,6 +50,8 @@ export const config = {
     baseUrl: process.env.CONFLUENCE_BASE_URL,
     email: process.env.CONFLUENCE_EMAIL,
     apiToken: process.env.CONFLUENCE_API_TOKEN,
+    excludePageIds: (process.env.CONFLUENCE_EXCLUDE_PAGE_IDS ?? "")
+      .split(",").map((s) => s.trim()).filter(Boolean),
   },
 
   // Jira

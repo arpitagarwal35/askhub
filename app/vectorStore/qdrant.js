@@ -52,7 +52,7 @@ export async function upsertChunks(chunks, collectionName = config.qdrant.collec
     });
   }
 
-  log.info({ count: points.length, collectionName }, "Upserted chunks to Qdrant");
+  log.debug({ count: points.length, collectionName }, "Upserted chunks to Qdrant");
 }
 
 export async function semanticSearch(queryVector, topK = 10, collectionName = config.qdrant.collection) {
@@ -86,12 +86,17 @@ export async function getCollectionInfo(collectionName = config.qdrant.collectio
   return client.getCollection(collectionName);
 }
 
-// Deterministic integer ID from a string (Qdrant requires integer or UUID point IDs)
+// Deterministic UUID from pageId + chunkIndex — unique per chunk, stable across re-syncs.
 function generateId(chunk) {
-  const str = `${chunk.pageId ?? ""}:${chunk.title}:${chunk.content.slice(0, 50)}`;
-  let hash = 0;
+  const str = `${chunk.pageId ?? "unknown"}:${chunk.chunkIndex ?? 0}`;
+  // Expand to 128 bits with two independent hashes for UUID formatting
+  let h1 = 0x811c9dc5;
+  let h2 = 0xdeadbeef;
   for (let i = 0; i < str.length; i++) {
-    hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+    const c = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x9e3779b9) >>> 0;
   }
-  return Math.abs(hash);
+  const toHex = (n, len) => n.toString(16).padStart(len, "0");
+  return `${toHex(h1, 8)}-${toHex(h2 >>> 16, 4)}-4${toHex((h2 >>> 8) & 0xfff, 3)}-${toHex(0x8000 | (h1 >>> 18 & 0x3fff), 4)}-${toHex(h1 >>> 4, 8)}${toHex(h2 & 0xffff, 4)}`;
 }

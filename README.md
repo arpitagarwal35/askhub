@@ -53,11 +53,15 @@ Qdrant dashboard: <http://localhost:6333/dashboard>
 
 ### 4. Ingest documents
 
-```bash
-node app/embeddings/processData.js
-```
+Open the app and go to **Sources** in the sidebar. Configure your Confluence space (or other sources) and click **Sync**. Ingestion is resumable — if interrupted, it picks up from where it left off using the SQLite checkpoint log.
 
-This fetches your Confluence space, chunks it, embeds it via Vertex AI, and upserts into Qdrant. Run this whenever docs change.
+Alternatively, trigger ingestion via the API:
+
+```bash
+curl -X POST http://localhost:3000/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"sources": [{"type": "confluence"}]}'
+```
 
 ### 5. Start the app
 
@@ -81,9 +85,8 @@ app/
     gemini.js            # Shared @google/genai client (Vertex AI)
     answer.js            # Answer generation helpers (normal / decision / debug modes)
   embeddings/
-    embed.js             # Vertex AI embedding via gemini-embedding-001
+    embed.js             # Vertex AI embedding via gemini-embedding-001 (concurrency-limited, retry on 429)
     chunk.js             # Structure-aware chunker (heading-boundary splits, ~250 tokens)
-    processData.js       # One-shot ingestion script
   connectors/
     base.js              # BaseConnector interface — implement fetchDocuments()
     confluence.js        # Confluence REST API v2
@@ -97,7 +100,7 @@ app/
   vectorStore/
     qdrant.js            # Qdrant client: upsert, search, deleteByPageId
   db/
-    conversations.js     # SQLite: conversations, messages, search_contexts
+    conversations.js     # SQLite: conversations, messages, search_contexts, ingested_pages
   middleware/
     auth.js              # Auth stub — pass-through now, plug Entra ID later
     errorHandler.js      # Catch-all, never leaks stack traces
@@ -148,6 +151,19 @@ Triggers ingestion from configured sources.
     { "type": "jira" },
     { "type": "sharepoint" }
   ]
+}
+```
+
+### GET /ingest/status
+
+Returns the current ingestion state: vector count from Qdrant and page count from the SQLite checkpoint log.
+
+```json
+{
+  "collection": "team-default",
+  "vectors": 2317,
+  "pages": 512,
+  "last_synced_at": "2026-05-12T10:00:00Z"
 }
 ```
 

@@ -44,11 +44,14 @@ app/server.js              — routes + middleware wiring only
 ## Adding a New Connector
 
 1. Create `app/connectors/mySource.js` extending `BaseConnector`
-2. Implement `fetchDocuments()` — return `[{ id, title, content, url, metadata }]`
-3. Register in `app/ingestion/pipeline.js` under the `type` switch
+2. Implement `async *streamDocuments()` — `yield` one document at a time with shape `{ id, title, content, url, sourceType, metadata }`. The pipeline marks each page in SQLite after yielding, so progress is saved incrementally.
+3. For simple sources without pagination or rate-limit concerns, implement `fetchDocuments()` instead — `BaseConnector` wraps it in a default `streamDocuments()` automatically.
+4. Register in `app/ingestion/pipeline.js` under the `type` switch
 
 ## Known Gotchas
 
 - **Qdrant vector size is 3072** — `gemini-embedding-001` outputs 3072 dimensions. If you recreate the collection, use `VECTOR_SIZE = 3072`.
 - **Express 5 wildcards** — `app.options('*', ...)` is invalid in Express 5 / path-to-regexp v8. Use `app.use(cors())` before `helmet()` instead.
 - **Chunker overlap** — in `splitByTokens`, `start` must always move forward. Never let `nextStart <= start` or you get an infinite loop.
+- **Chunk IDs are deterministic** — `qdrant.js` derives the Qdrant point UUID from `pageId:chunkIndex`. Re-ingesting the same page with the same chunk count is idempotent (upsert). If a page shrinks and loses chunks, the old tail chunk IDs remain in Qdrant — call `deleteByPageId` before re-ingesting if you need a clean slate.
+- **Gemini embedding 429** — the SDK surfaces rate limits as `RESOURCE_EXHAUSTED` in the error message, not as `err.status === 429`. The retry logic in `embed.js` handles both. Backoff starts at 60 s per Google's recommendation.

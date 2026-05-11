@@ -1,6 +1,7 @@
 import { chunkDocument } from "../embeddings/chunk.js";
 import { getEmbedding } from "../embeddings/embed.js";
 import { upsertChunks, ensureCollection } from "../vectorStore/qdrant.js";
+import { markPageIngested, getIngestedPageIds } from "../db/conversations.js";
 import { ConfluenceConnector } from "../connectors/confluence.js";
 import { JiraConnector } from "../connectors/jira.js";
 import { SharePointConnector } from "../connectors/sharepoint.js";
@@ -8,9 +9,9 @@ import { FileUploadConnector } from "../connectors/fileUpload.js";
 import { config } from "../config.js";
 import pino from "pino";
 
-const log = pino({ level: "info" });
+const log = pino({ level: "info", base: null });
 
-function buildConnector(source) {
+function buildConnector(source, { skipPageIds = new Set() } = {}) {
   switch (source.type) {
     case "confluence":
       return new ConfluenceConnector({
@@ -19,7 +20,12 @@ function buildConnector(source) {
         apiToken: source.config?.apiToken ?? config.confluence.apiToken,
         pageId: source.config?.pageId,
         spaceKey: source.config?.spaceKey,
-        maxPages: source.config?.maxPages ? parseInt(source.config.maxPages) : 50,
+        ...(source.config?.maxPages && { maxPages: parseInt(source.config.maxPages) }),
+        skipPageIds,
+        excludePageIds: [
+          ...config.confluence.excludePageIds,
+          ...(source.config?.excludePageIds ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+        ],
       });
     case "jira":
       return new JiraConnector({
@@ -48,9 +54,10 @@ export async function runIngestionPipeline(sources, collectionName = config.qdra
   const stats = { documentsIngested: 0, chunksCreated: 0, errors: [] };
 
   for (const source of sources) {
+    const skipPageIds = getIngestedPageIds(collectionName);
     let connector;
     try {
-      connector = buildConnector(source);
+      connector = buildConnector(source, { skipPageIds });
     } catch (err) {
       stats.errors.push({ source: source.type, error: err.message });
       continue;
@@ -59,47 +66,47 @@ export async function runIngestionPipeline(sources, collectionName = config.qdra
     const health = await connector.healthCheck();
     if (!health.ok) {
       stats.errors.push({ source: source.type, error: health.message });
-      log.warn({ source: source.type, reason: health.message }, "Source health check failed");
+      log.warn(`[${source.type}] health check failed: ${health.message}`);
       continue;
     }
 
-    let documents;
+    let totalChunks = 0;
+    let totalDocs = 0;
     try {
-      documents = await connector.fetchDocuments();
+      for await (const doc of connector.streamDocuments()) {
+        totalDocs++;
+
+        const docChunks = chunkDocument(doc.content, doc.title);
+        if (doc.id) markPageIngested(doc.id, doc.sourceType, collectionName);
+        if (docChunks.length === 0) continue;
+
+        const chunks = await Promise.all(
+          docChunks.map(async (chunk, chunkIndex) => ({
+            title: chunk.title,
+            content: chunk.text,
+            headingPath: chunk.headingPath,
+            pageId: doc.id,
+            chunkIndex,
+            url: doc.url,
+            sourceType: doc.sourceType,
+            embedding: await getEmbedding(chunk.text),
+          }))
+        );
+
+        await upsertChunks(chunks, collectionName);
+        totalChunks += chunks.length;
+
+        log.info(`[${source.type}] page ${totalDocs} | ${doc.title} | +${chunks.length} chunks (${totalChunks} total)`);
+      }
     } catch (err) {
       stats.errors.push({ source: source.type, error: err.message });
-      log.error({ source: source.type, err: err.message }, "Failed to fetch documents");
-      continue;
+      log.error(`[${source.type}] ingestion interrupted: ${err.message}`);
     }
 
-    const chunks = [];
-    for (const doc of documents) {
-      const docChunks = chunkDocument(doc.content, doc.title);
-      for (const chunk of docChunks) {
-        const embedding = await getEmbedding(chunk.text);
-        chunks.push({
-          title: chunk.title,
-          content: chunk.text,
-          headingPath: chunk.headingPath,
-          pageId: doc.id,
-          url: doc.url,
-          sourceType: doc.sourceType,
-          embedding,
-        });
-      }
-    }
+    stats.documentsIngested += totalDocs;
+    stats.chunksCreated += totalChunks;
 
-    if (chunks.length > 0) {
-      await upsertChunks(chunks, collectionName);
-    }
-
-    stats.documentsIngested += documents.length;
-    stats.chunksCreated += chunks.length;
-
-    log.info(
-      { source: source.type, docs: documents.length, chunks: chunks.length },
-      "Source ingested"
-    );
+    log.info(`[${source.type}] done — ${totalDocs} pages, ${totalChunks} chunks`);
   }
 
   return stats;

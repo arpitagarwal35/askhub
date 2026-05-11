@@ -6,10 +6,11 @@ import pino from "pino";
 import { config } from "./config.js";
 import { ai } from "./llm/gemini.js";
 import { search } from "./retrieval/search.js";
+import { getCollectionInfo } from "./vectorStore/qdrant.js";
 import { auth } from "./middleware/auth.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { validate, askStreamSchema, askSourcesSchema, ingestSchema } from "./middleware/validate.js";
-import { addMessage, saveSearchContext } from "./db/conversations.js";
+import { addMessage, saveSearchContext, getIngestionStats } from "./db/conversations.js";
 import { runIngestionPipeline } from "./ingestion/pipeline.js";
 import multer from "multer";
 
@@ -82,22 +83,23 @@ app.post("/ask-stream", auth, validate(askStreamSchema), async (req, res, next) 
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n");
 
-    const prompt = `You are a senior engineering assistant.
+    const prompt = `You are a senior engineering assistant for an internal team knowledge base.
 
-Use BOTH:
-1. Conversation history
-2. Retrieved context
+Use the retrieved context and conversation history to answer accurately.
 
 Rules:
-- Use history to understand follow-up questions
-- Use context to answer accurately
-- Do NOT guess. If not found, say "I don't know"
-- Do not repeat previous answers
+- Do NOT guess or infer beyond what the context says. If not found, say "I don't know based on the available docs."
+- Do not repeat previous answers in the conversation.
+- Use history only to resolve follow-up questions.
 
-Format:
-- Use headings
-- Use bullet points
-- Keep it readable
+Format (strictly follow this):
+- Start with a one-sentence TL;DR in bold.
+- Use ## headings to separate major topics.
+- Use bullet points for lists, steps, and options — not prose.
+- Use **bold** for key terms, decisions, and warnings.
+- If there are sequential steps, number them.
+- End with a "## Open Questions / Gaps" section only if the context mentions unresolved issues.
+- Keep answers concise — no filler, no repetition.
 
 Conversation:
 ${conversation}
@@ -146,12 +148,47 @@ app.post("/ask-sources", auth, validate(askSourcesSchema), async (req, res, next
     const { question } = req.body;
     const results = await search(question, config.retrieval.topK);
 
+    // Deduplicate by pageId — keep the highest-scoring chunk per page
+    const seen = new Map();
+    for (const r of results) {
+      const key = r.pageId ?? r.title;
+      if (!seen.has(key)) seen.set(key, r);
+    }
+
+    const sources = [...seen.values()]
+      .slice(0, config.retrieval.finalK)
+      .map((r) => {
+        const body = r.content.split("\n\n").slice(1).join("\n\n").trim() || r.content;
+        // If overlap caused the chunk to start mid-sentence, skip to the first capital letter
+        const firstCap = body.search(/[A-Z]/);
+        const snippet = firstCap > 0 && firstCap < 60 ? body.slice(firstCap) : body;
+        return {
+          title: r.title,
+          headingPath: r.headingPath ?? null,
+          snippet,
+          url: r.url ?? null,
+        };
+      });
+
+    res.json({ sources });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── Ingest status ─────────────────────────────────────────────────────────────
+app.get("/ingest/status", auth, async (_req, res, next) => {
+  try {
+    const collection = config.qdrant.collection;
+    const [qdrantInfo, sqliteStats] = await Promise.all([
+      getCollectionInfo(collection),
+      Promise.resolve(getIngestionStats(collection)),
+    ]);
     res.json({
-      sources: results.map((r) => ({
-        title: r.title,
-        content: r.content,
-        url: r.url ?? null,
-      })),
+      collection,
+      vectors: qdrantInfo.vectors_count ?? qdrantInfo.points_count ?? 0,
+      pages: sqliteStats?.pages ?? 0,
+      last_synced_at: sqliteStats?.last_synced_at ?? null,
     });
   } catch (err) {
     next(err);

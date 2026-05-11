@@ -36,8 +36,16 @@ function migrate(database) {
       id              TEXT PRIMARY KEY,
       message_id      TEXT NOT NULL REFERENCES messages(id),
       query           TEXT NOT NULL,
-      results         TEXT NOT NULL,  -- JSON array of retrieved chunks
+      results         TEXT NOT NULL,
       created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS ingested_pages (
+      page_id     TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      collection  TEXT NOT NULL,
+      ingested_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (page_id, collection)
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_conversation
@@ -76,4 +84,36 @@ export function listConversations(workspace = "default") {
   return db().prepare(
     "SELECT id, created_at FROM conversations WHERE workspace = ? ORDER BY created_at DESC LIMIT 50"
   ).all(workspace);
+}
+
+// ── Ingestion tracking ────────────────────────────────────────────────────────
+
+export function isPageIngested(pageId, collection) {
+  const row = db().prepare(
+    "SELECT 1 FROM ingested_pages WHERE page_id = ? AND collection = ?"
+  ).get(pageId, collection);
+  return !!row;
+}
+
+export function markPageIngested(pageId, sourceType, collection) {
+  db().prepare(
+    "INSERT OR REPLACE INTO ingested_pages (page_id, source_type, collection) VALUES (?, ?, ?)"
+  ).run(pageId, sourceType, collection);
+}
+
+export function getIngestionStats(collection) {
+  return db().prepare(
+    "SELECT COUNT(*) as pages, MAX(ingested_at) as last_synced_at FROM ingested_pages WHERE collection = ?"
+  ).get(collection);
+}
+
+export function getIngestedPageIds(collection) {
+  const rows = db().prepare(
+    "SELECT page_id FROM ingested_pages WHERE collection = ?"
+  ).all(collection);
+  return new Set(rows.map((r) => r.page_id));
+}
+
+export function clearIngestionLog(collection) {
+  db().prepare("DELETE FROM ingested_pages WHERE collection = ?").run(collection);
 }
