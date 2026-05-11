@@ -63,11 +63,11 @@ flowchart LR
 
 ### Vector Store: Qdrant OSS on GCE
 
-**Why not Qdrant Cloud:** Third-party SaaS — internal your organisation data cannot leave your organisation's GCP boundary.
+**Why not Qdrant Cloud:** Third-party SaaS — internal data cannot leave the organisation's GCP boundary.
 
 **Why not Google Cloud Vector Search:** Managed GCP service (data stays in GCP), but costs ~$68/month minimum with no scale-to-zero. Too expensive for an MVP.
 
-**Decision:** Self-host Qdrant OSS in Docker on a GCE e2-small VM (~$12–17/month) inside your organisation's GCP project. Data never leaves GCP. The Qdrant API is identical to Qdrant Cloud, so migration later is a one-line config change.
+**Decision:** Self-host Qdrant OSS in Docker on a GCE e2-small VM (~$12–17/month) inside the organisation's GCP project. Data never leaves GCP. The Qdrant API is identical to Qdrant Cloud, so migration later is a one-line config change.
 
 **Collection naming:** One collection per team (`team-default` in Phase 1). In Phase 2, each workspace gets its own collection for strict data isolation.
 
@@ -99,7 +99,7 @@ query
                            └─ rerankResults (Gemini, T=0) — pick final top-K
 ```
 
-**Query expansion:** Especially valuable for internal acronyms (e.g. your team's internal acronyms). Gemini also uses the last 6 messages to resolve follow-up questions ("what about that pipeline?" → "what about the our deployment process?").
+**Query expansion:** Especially valuable for internal acronyms specific to your team. Gemini also uses the last 6 messages to resolve follow-up questions ("what about that pipeline?" → the full pipeline name).
 
 **Score pruning:** Drops the long tail of low-relevance results. Threshold at 15% of the top score — research-backed, simple, no hyperparameter tuning needed.
 

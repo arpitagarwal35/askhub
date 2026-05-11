@@ -123,7 +123,7 @@ Streams an answer token-by-token.
 
 ```json
 {
-  "question": "What is the our deployment process?",
+  "question": "What is our deployment process?",
   "mode": "normal",
   "history": [],
   "conversationId": "uuid"
@@ -137,7 +137,7 @@ Streams an answer token-by-token.
 Returns the top retrieved sources without generating an answer.
 
 ```json
-{ "question": "What is the our deployment process?" }
+{ "question": "What is our deployment process?" }
 ```
 
 ### POST /ingest

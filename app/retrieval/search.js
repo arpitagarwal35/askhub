@@ -19,7 +19,7 @@ async function expandQuery(query, history = []) {
   const prompt = `You are a search query optimizer for an internal engineering knowledge base.
 
 Given the user query below, return an improved search query that:
-- Expands acronyms (e.g. acronyms where possible)
+- Expands acronyms where possible
 - Adds relevant synonyms
 - Resolves any pronouns using the conversation history
 
