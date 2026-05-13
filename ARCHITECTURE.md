@@ -154,7 +154,7 @@ ingested_pages (page_id, source_type, collection, ingested_at)  -- PRIMARY KEY (
 - **`cors`** — explicit origin allowlist, not wildcard. Configured in `ALLOWED_ORIGINS`.
 - **`express-rate-limit`** — 20 req/min per IP on `/ask-stream` and `/ask-sources`
 - **`zod`** — validates all request bodies at the boundary; invalid input returns 400, never reaches business logic
-- **Auth middleware stub** (`app/middleware/auth.js`) — pass-through now. Plug in Entra ID token verification or API key check here when needed. All routes already go through it.
+- **Auth** (`app/middleware/auth.js`) — Bearer token check against `API_KEY` env var. If `API_KEY` is unset the middleware passes through (local dev). Phase 2 will replace this with Entra ID token verification.
 - **Error handler** (`app/middleware/errorHandler.js`) — catch-all, logs with pino, returns `{ error: "Internal server error" }`. Stack traces never leak to clients.
 
 ---
@@ -167,7 +167,7 @@ The single-team design is intentionally forward-compatible:
 | --- | --- |
 | One Qdrant collection `team-default` | One collection per workspace |
 | No workspace concept in DB | Add `workspaces` table; foreign key on `conversations` |
-| Auth stub passes through | Plug in Entra ID; resolve workspace from token |
+| API key auth (`Authorization: Bearer`) | Replace with Entra ID; resolve workspace from token |
 | Sources config in `.env` | Sources config stored per workspace in DB |
 | Admin UI for one team | Workspace selector + workspace creation flow |
 

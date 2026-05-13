@@ -1,7 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import { useState, useEffect, useRef } from "react";
-
-const API = "http://localhost:3000";
+import { apiUrl, apiHeaders } from "../lib/api.js";
 
 const SUGGESTIONS = [
   "What are the main technical challenges the team is facing?",
@@ -62,14 +61,14 @@ export default function ChatPage() {
 
     try {
       const [streamRes, sourcesResult] = await Promise.all([
-        fetch(`${API}/ask-stream`, {
+        fetch(apiUrl("/ask-stream"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: apiHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ question, mode, history, conversationId }),
         }),
-        fetch(`${API}/ask-sources`, {
+        fetch(apiUrl("/ask-sources"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: apiHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ question }),
         })
           .then((r) => r.json())

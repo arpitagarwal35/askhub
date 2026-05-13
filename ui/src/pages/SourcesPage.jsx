@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-
-const API = "http://localhost:3000";
+import { apiUrl, apiHeaders } from "../lib/api.js";
 
 const SOURCE_TYPES = [
   { value: "confluence", label: "Confluence" },
@@ -92,7 +91,7 @@ function FileUploadSection() {
     setUploading(true);
     setStatus(null);
     try {
-      const res = await fetch(`${API}/ingest/files`, { method: "POST", body: form });
+      const res = await fetch(apiUrl("/ingest/files"), { method: "POST", headers: apiHeaders(), body: form });
       const data = await res.json();
       if (res.ok && data.ok) {
         setStatus({ type: "success", text: `Done — ${data.chunksCreated} chunks ingested from ${data.documentsIngested} document(s).` });
@@ -168,9 +167,9 @@ export default function SourcesPage() {
     setIngesting(true);
     setIngestStatus(null);
     try {
-      const res = await fetch(`${API}/ingest`, {
+      const res = await fetch(apiUrl("/ingest"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ sources }),
       });
       const data = await res.json();

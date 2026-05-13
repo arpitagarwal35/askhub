@@ -32,6 +32,7 @@ cd ui && npm install && cd ..
 
 ```bash
 cp .env.example .env
+cp ui/.env.example ui/.env
 ```
 
 Edit `.env` and fill in at minimum:
@@ -42,6 +43,8 @@ CONFLUENCE_BASE_URL=https://your-org.atlassian.net
 CONFLUENCE_EMAIL=you@your-org.com
 CONFLUENCE_API_TOKEN=your-token
 ```
+
+`ui/.env` defaults to `VITE_API_URL=http://localhost:3000` — no changes needed for local dev.
 
 ### 3. Start Qdrant
 
@@ -59,6 +62,7 @@ Alternatively, trigger ingestion via the API:
 
 ```bash
 curl -X POST http://localhost:3000/ingest \
+  -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"sources": [{"type": "confluence"}]}'
 ```
@@ -187,9 +191,44 @@ Each question goes through five stages:
 4. **MMR diversification** — greedy selection balancing relevance (70%) vs. diversity (30%)
 5. **LLM reranking** — Gemini picks the final top-K most relevant results
 
-## Deployment Notes
+## Authentication
 
-- Qdrant runs on a GCE e2-small VM inside your GCP project (~$12–17/month). Data never leaves GCP.
-- Auth middleware stub is at `app/middleware/auth.js`. Wire in Entra ID / API key verification there.
-- Set `ALLOWED_ORIGINS` to your production frontend URL before deploying.
+All API routes require a Bearer token:
+
+```http
+Authorization: Bearer <API_KEY>
+```
+
+`API_KEY` is set via the `API_KEY` env var. If unset (local dev without the var), auth is skipped. The UI stores the key in `localStorage` and shows a login screen on first visit.
+
+## Deployment to GCP
+
+A single script provisions everything from scratch (idempotent — safe to re-run):
+
+```bash
+GOOGLE_CLOUD_PROJECT=your-gcp-project ./scripts/setup.sh
+```
+
+What it creates:
+
+- GCE e2-small VM running Qdrant OSS in Docker with a persistent 20 GB disk (~$12–17/month)
+- Cloud Run service (scales to zero when idle)
+- Serverless VPC connector so Cloud Run can reach Qdrant over the internal network
+- Cloud NAT for outbound internet from the VM
+- Artifact Registry repository for the Docker image
+- Secret Manager secret holding all credentials as a single JSON object
+
+Connector credentials (`CONFLUENCE_*`, `JIRA_*`, `SHAREPOINT_*`) are read from `.env` at script run time, stored in Secret Manager, and injected into Cloud Run as env vars. The script prints a summary and asks for confirmation before touching anything.
+
+The API key is generated on first run and printed once — save it. To retrieve it later:
+
+```bash
+gcloud secrets versions access latest --secret=test-service-config \
+  --project=your-gcp-project \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['API_KEY'])"
+```
+
+## Other Notes
+
 - Rate limit defaults: 20 requests/minute per IP on `/ask-stream` and `/ask-sources`.
+- Set `ALLOWED_ORIGINS` to your production frontend URL to restrict CORS.

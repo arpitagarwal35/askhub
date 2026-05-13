@@ -8,17 +8,17 @@ services:
       - qdrant_storage:/qdrant/storage
     restart: unless-stopped
 
-  # Uncomment to run the backend in Docker as well
-  # app:
-  #   build: .
-  #   ports:
-  #     - "3000:3000"
-  #   env_file: .env
-  #   depends_on:
-  #     - qdrant
-  #   environment:
-  #     QDRANT_URL: http://qdrant:6333
-  #   restart: unless-stopped
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    depends_on:
+      - qdrant
+    environment:
+      NODE_ENV: production
+      QDRANT_URL: http://qdrant:6333
+    restart: unless-stopped
 
 volumes:
   qdrant_storage:

@@ -39,7 +39,9 @@ export const config = {
 
   // Server
   server: {
+    nodeEnv: process.env.NODE_ENV ?? "development",
     port: parseInt(process.env.PORT ?? "3000"),
+    apiKey: process.env.API_KEY,
     allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173").split(","),
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? "60000"),
     rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX ?? "20"),

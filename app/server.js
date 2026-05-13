@@ -3,6 +3,8 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import pino from "pino";
+import path from "path";
+import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { ai } from "./llm/gemini.js";
 import { search } from "./retrieval/search.js";
@@ -181,12 +183,12 @@ app.get("/ingest/status", auth, async (_req, res, next) => {
   try {
     const collection = config.qdrant.collection;
     const [qdrantInfo, sqliteStats] = await Promise.all([
-      getCollectionInfo(collection),
+      getCollectionInfo(collection).catch((e) => (e?.status === 404 ? null : Promise.reject(e))),
       Promise.resolve(getIngestionStats(collection)),
     ]);
     res.json({
       collection,
-      vectors: qdrantInfo.vectors_count ?? qdrantInfo.points_count ?? 0,
+      vectors: qdrantInfo ? (qdrantInfo.vectors_count ?? qdrantInfo.points_count ?? 0) : 0,
       pages: sqliteStats?.pages ?? 0,
       last_synced_at: sqliteStats?.last_synced_at ?? null,
     });
@@ -224,6 +226,13 @@ app.post("/ingest/files", auth, upload.array("files"), async (req, res, next) =>
     next(err);
   }
 });
+
+// ── Static frontend (production only) ────────────────────────────────────────
+if (config.server.nodeEnv === "production") {
+  const distPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../ui/dist");
+  app.use(express.static(distPath));
+  app.use((_req, res) => res.sendFile(path.join(distPath, "index.html")));
+}
 
 // ── Error handler (must be last) ──────────────────────────────────────────────
 app.use(errorHandler);

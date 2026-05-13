@@ -55,3 +55,4 @@ app/server.js              — routes + middleware wiring only
 - **Chunker overlap** — in `splitByTokens`, `start` must always move forward. Never let `nextStart <= start` or you get an infinite loop.
 - **Chunk IDs are deterministic** — `qdrant.js` derives the Qdrant point UUID from `pageId:chunkIndex`. Re-ingesting the same page with the same chunk count is idempotent (upsert). If a page shrinks and loses chunks, the old tail chunk IDs remain in Qdrant — call `deleteByPageId` before re-ingesting if you need a clean slate.
 - **Gemini embedding 429** — the SDK surfaces rate limits as `RESOURCE_EXHAUSTED` in the error message, not as `err.status === 429`. The retry logic in `embed.js` handles both. Backoff starts at 60 s per Google's recommendation.
+- **`pdf-parse` must stay at v1.1.1** — v2 exports a class (`PDFParse`) instead of a function, breaking the `(await import("pdf-parse/lib/pdf-parse.js")).default(buffer)` call. Do not upgrade.
