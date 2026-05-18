@@ -74,7 +74,7 @@ app.post("/ask-stream", auth, validate(askStreamSchema), async (req, res, next) 
 
     log.info({ question, mode, convId }, "ask-stream");
 
-    const results = await search(question, config.retrieval.topK, history);
+    const results = await search(question, config.retrieval.topK, history, req.workspace.collection);
     const reranked = await rerankResults(question, results);
 
     const context = reranked
@@ -148,7 +148,7 @@ Answer:`;
 app.post("/ask-sources", auth, validate(askSourcesSchema), async (req, res, next) => {
   try {
     const { question } = req.body;
-    const results = await search(question, config.retrieval.topK);
+    const results = await search(question, config.retrieval.topK, [], req.workspace.collection);
 
     // Deduplicate by pageId — keep the highest-scoring chunk per page
     const seen = new Map();
@@ -179,14 +179,15 @@ app.post("/ask-sources", auth, validate(askSourcesSchema), async (req, res, next
 });
 
 // ── Ingest status ─────────────────────────────────────────────────────────────
-app.get("/ingest/status", auth, async (_req, res, next) => {
+app.get("/ingest/status", auth, async (req, res, next) => {
   try {
-    const collection = config.qdrant.collection;
+    const { collection } = req.workspace;
     const [qdrantInfo, sqliteStats] = await Promise.all([
       getCollectionInfo(collection).catch((e) => (e?.status === 404 ? null : Promise.reject(e))),
       Promise.resolve(getIngestionStats(collection)),
     ]);
     res.json({
+      name: req.workspace.name,
       collection,
       vectors: qdrantInfo ? (qdrantInfo.vectors_count ?? qdrantInfo.points_count ?? 0) : 0,
       pages: sqliteStats?.pages ?? 0,
@@ -202,7 +203,11 @@ app.post("/ingest", auth, validate(ingestSchema), async (req, res, next) => {
   try {
     const { sources } = req.body;
     log.info({ sources: sources.map((s) => s.type) }, "Ingestion started");
-    const stats = await runIngestionPipeline(sources);
+    const stats = await runIngestionPipeline(sources, {
+      collection: req.workspace.collection,
+      pageIds: req.workspace.pageIds ?? [],
+      excludePageIds: req.workspace.excludePageIds ?? [],
+    });
     res.json({ ok: true, ...stats });
   } catch (err) {
     next(err);
@@ -220,7 +225,10 @@ app.post("/ingest/files", auth, upload.array("files"), async (req, res, next) =>
       originalName: f.originalname,
     }));
 
-    const stats = await runIngestionPipeline([{ type: "file", files }]);
+    const stats = await runIngestionPipeline([{ type: "file", files }], {
+      collection: req.workspace.collection,
+      pageIds: req.workspace.pageIds ?? [],
+    });
     res.json({ ok: true, ...stats });
   } catch (err) {
     next(err);

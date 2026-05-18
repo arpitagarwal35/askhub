@@ -48,13 +48,22 @@ function buildConnector(source, { skipPageIds = new Set() } = {}) {
   }
 }
 
-export async function runIngestionPipeline(sources, collectionName = config.qdrant.collection) {
-  await ensureCollection(collectionName);
+export async function runIngestionPipeline(sources, { collection, pageIds = [], excludePageIds = [] } = {}) {
+  await ensureCollection(collection);
+
+  // Expand each confluence source into one run per workspace root page
+  const expandedSources = sources.flatMap((source) => {
+    if (source.type !== "confluence" || pageIds.length === 0) return [source];
+    return pageIds.map((pid) => ({
+      ...source,
+      config: { ...source.config, pageId: pid, excludePageIds: excludePageIds.join(",") },
+    }));
+  });
 
   const stats = { documentsIngested: 0, chunksCreated: 0, errors: [] };
 
-  for (const source of sources) {
-    const skipPageIds = getIngestedPageIds(collectionName);
+  for (const source of expandedSources) {
+    const skipPageIds = getIngestedPageIds(collection);
     let connector;
     try {
       connector = buildConnector(source, { skipPageIds });
@@ -77,7 +86,7 @@ export async function runIngestionPipeline(sources, collectionName = config.qdra
         totalDocs++;
 
         const docChunks = chunkDocument(doc.content, doc.title);
-        if (doc.id) markPageIngested(doc.id, doc.sourceType, collectionName);
+        if (doc.id) markPageIngested(doc.id, doc.sourceType, collection);
         if (docChunks.length === 0) continue;
 
         const chunks = await Promise.all(
@@ -93,7 +102,7 @@ export async function runIngestionPipeline(sources, collectionName = config.qdra
           }))
         );
 
-        await upsertChunks(chunks, collectionName);
+        await upsertChunks(chunks, collection);
         totalChunks += chunks.length;
 
         log.info(`[${source.type}] page ${totalDocs} | ${doc.title} | +${chunks.length} chunks (${totalChunks} total)`);

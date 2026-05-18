@@ -27,3 +27,4 @@ Thumbs.db
 .idea/
 
 package-lock.json
+workspaces.json

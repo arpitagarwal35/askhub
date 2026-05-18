@@ -1,10 +1,39 @@
 import dotenv from "dotenv";
+import { readFileSync } from "fs";
 dotenv.config();
 
 function required(name) {
   const val = process.env[name];
   if (!val) throw new Error(`Missing required environment variable: ${name}`);
   return val;
+}
+
+const isProd = (process.env.NODE_ENV ?? "development") === "production";
+
+// Workspace registry — keyed by API key.
+// Load order: WORKSPACES_JSON env var → workspaces.json file → fail (prod) / warn (dev).
+export const workspacesByKey = new Map();
+
+function loadWorkspaces(list) {
+  for (const ws of list) workspacesByKey.set(ws.apiKey, ws);
+}
+
+if (process.env.WORKSPACES_JSON) {
+  try {
+    loadWorkspaces(JSON.parse(process.env.WORKSPACES_JSON));
+  } catch (e) {
+    throw new Error(`Invalid WORKSPACES_JSON: ${e.message}`);
+  }
+} else {
+  try {
+    loadWorkspaces(JSON.parse(readFileSync("workspaces.json", "utf8")));
+  } catch {
+    if (isProd) {
+      throw new Error("No workspaces configured. Set WORKSPACES_JSON or provide workspaces.json.");
+    } else {
+      console.warn("[AskHub] No workspaces configured — running in no-auth dev mode.");
+    }
+  }
 }
 
 export const config = {
@@ -16,11 +45,10 @@ export const config = {
     embeddingModel: process.env.VERTEX_EMBEDDING_MODEL ?? "gemini-embedding-001",
   },
 
-  // Qdrant vector store
+  // Qdrant vector store (collection is workspace-scoped, not global)
   qdrant: {
     url: process.env.QDRANT_URL ?? "http://localhost:6333",
-    apiKey: process.env.QDRANT_API_KEY,         // undefined for local dev (no auth)
-    collection: process.env.QDRANT_COLLECTION ?? "team-default",
+    apiKey: process.env.QDRANT_API_KEY,
   },
 
   // Chunking
@@ -41,7 +69,6 @@ export const config = {
   server: {
     nodeEnv: process.env.NODE_ENV ?? "development",
     port: parseInt(process.env.PORT ?? "3000"),
-    apiKey: process.env.API_KEY,
     allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173").split(","),
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? "60000"),
     rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX ?? "20"),

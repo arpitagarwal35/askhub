@@ -12,7 +12,7 @@ const client = new QdrantClient({
 // gemini-embedding-001 produces 3072-dimensional vectors
 const VECTOR_SIZE = 3072;
 
-export async function ensureCollection(collectionName = config.qdrant.collection) {
+export async function ensureCollection(collectionName) {
   const collections = await client.getCollections();
   const exists = collections.collections.some((c) => c.name === collectionName);
 
@@ -27,7 +27,7 @@ export async function ensureCollection(collectionName = config.qdrant.collection
   }
 }
 
-export async function upsertChunks(chunks, collectionName = config.qdrant.collection) {
+export async function upsertChunks(chunks, collectionName) {
   await ensureCollection(collectionName);
 
   const points = chunks.map((chunk, i) => ({
@@ -55,7 +55,7 @@ export async function upsertChunks(chunks, collectionName = config.qdrant.collec
   log.debug({ count: points.length, collectionName }, "Upserted chunks to Qdrant");
 }
 
-export async function semanticSearch(queryVector, topK = 10, collectionName = config.qdrant.collection) {
+export async function semanticSearch(queryVector, topK = 10, collectionName) {
   const results = await client.search(collectionName, {
     vector: queryVector,
     limit: topK,
@@ -74,7 +74,7 @@ export async function semanticSearch(queryVector, topK = 10, collectionName = co
   }));
 }
 
-export async function deleteByPageId(pageId, collectionName = config.qdrant.collection) {
+export async function deleteByPageId(pageId, collectionName) {
   await client.delete(collectionName, {
     filter: {
       must: [{ key: "pageId", match: { value: pageId } }],
@@ -82,7 +82,7 @@ export async function deleteByPageId(pageId, collectionName = config.qdrant.coll
   });
 }
 
-export async function getCollectionInfo(collectionName = config.qdrant.collection) {
+export async function getCollectionInfo(collectionName) {
   return client.getCollection(collectionName);
 }
 

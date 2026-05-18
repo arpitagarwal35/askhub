@@ -26,12 +26,12 @@ import { ai } from "./llm/gemini.js"; // shared client — do not create new ins
 - **Config in one place** — all env vars live in `app/config.js`. Never read `process.env` directly elsewhere.
 - **Zod for validation** — add a schema to `app/middleware/validate.js` for any new route.
 - **Pino for logging** — no `console.log` in production paths.
-- **No speculative code** — implement what is needed now. Phase 2 (multi-team) is tracked in `ARCHITECTURE.md`.
+- **No speculative code** — implement what is needed now.
 
 ## File Responsibilities
 
 ```
-app/config.js              — env vars only, no logic
+app/config.js              — env vars + workspace registry (workspacesByKey map)
 app/llm/gemini.js          — shared AI client, nothing else
 app/embeddings/chunk.js    — chunking only, no I/O
 app/embeddings/embed.js    — embedding only

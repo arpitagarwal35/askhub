@@ -1,6 +1,6 @@
 # AI Knowledge Assistant
 
-A RAG (Retrieval-Augmented Generation) chatbot that answers questions from internal documentation sources — Confluence, Jira, SharePoint, and uploaded files. Built for a single team first, designed to extend to multiple teams.
+A RAG (Retrieval-Augmented Generation) chatbot that answers questions from internal documentation sources — Confluence, Jira, SharePoint, and uploaded files. Multi-team: each team gets its own API key, Qdrant collection, and Confluence page configuration.
 
 ## Stack
 
@@ -42,6 +42,20 @@ GOOGLE_CLOUD_PROJECT=your-gcp-project-id
 CONFLUENCE_BASE_URL=https://your-org.atlassian.net
 CONFLUENCE_EMAIL=you@your-org.com
 CONFLUENCE_API_TOKEN=your-token
+```
+
+Create `workspaces.json` in the project root (gitignored) to configure teams for local dev:
+
+```json
+[
+  {
+    "name": "my-team",
+    "apiKey": "any-local-key",
+    "collection": "my-team",
+    "pageIds": ["123456"],
+    "excludePageIds": []
+  }
+]
 ```
 
 `ui/.env` defaults to `VITE_API_URL=http://localhost:3000` — no changes needed for local dev.
@@ -106,7 +120,7 @@ app/
   db/
     conversations.js     # SQLite: conversations, messages, search_contexts, ingested_pages
   middleware/
-    auth.js              # Auth stub — pass-through now, plug Entra ID later
+    auth.js              # Workspace lookup by Bearer token → attaches req.workspace
     errorHandler.js      # Catch-all, never leaks stack traces
     validate.js          # Zod schemas for all request bodies
 ui/
@@ -164,7 +178,8 @@ Returns the current ingestion state: vector count from Qdrant and page count fro
 
 ```json
 {
-  "collection": "team-default",
+  "name": "my-team",
+  "collection": "my-team",
   "vectors": 2317,
   "pages": 512,
   "last_synced_at": "2026-05-12T10:00:00Z"
@@ -193,13 +208,13 @@ Each question goes through five stages:
 
 ## Authentication
 
-All API routes require a Bearer token:
+All API routes require a Bearer token matching a registered workspace API key:
 
 ```http
-Authorization: Bearer <API_KEY>
+Authorization: Bearer <workspace-api-key>
 ```
 
-`API_KEY` is set via the `API_KEY` env var. If unset (local dev without the var), auth is skipped. The UI stores the key in `localStorage` and shows a login screen on first visit.
+Workspaces are loaded from `workspaces.json` locally or `WORKSPACES_JSON` env var in prod. If neither is set (local dev only), auth is skipped. The UI stores the key in `localStorage` and shows a login screen on first visit. The header displays the team name after login.
 
 ## Deployment to GCP
 
@@ -220,12 +235,21 @@ What it creates:
 
 Connector credentials (`CONFLUENCE_*`, `JIRA_*`, `SHAREPOINT_*`) are read from `.env` at script run time, stored in Secret Manager, and injected into Cloud Run as env vars. The script prints a summary and asks for confirmation before touching anything.
 
-The API key is generated on first run and printed once — save it. To retrieve it later:
+After deploying, register each team workspace (generates an API key, updates the secret, redeploys Cloud Run):
 
 ```bash
-gcloud secrets versions access latest --secret=test-service-config \
-  --project=your-gcp-project \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['API_KEY'])"
+GOOGLE_CLOUD_PROJECT=your-gcp-project \
+  node scripts/add-workspace.js \
+  --name="my-team" \
+  --pages="123456,789012" \
+  --exclude="111,222"
+```
+
+The API key is printed once — save it. To migrate a local Qdrant collection to the GCE VM:
+
+```bash
+GOOGLE_CLOUD_PROJECT=your-gcp-project \
+  ./scripts/migrate-collection.sh --collection=my-team
 ```
 
 ## Other Notes

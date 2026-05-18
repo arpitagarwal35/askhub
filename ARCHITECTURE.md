@@ -10,7 +10,7 @@ The app is a RAG (Retrieval-Augmented Generation) pipeline. When a user asks a q
 4. Noisy results are pruned and diversified
 5. Gemini reranks and then streams a grounded answer
 
-Everything is scoped to a single team in Phase 1. Phase 2 adds a workspace model for multi-team self-serve.
+Each team has its own workspace: a dedicated Qdrant collection, API key, and Confluence page configuration.
 
 ---
 
@@ -41,7 +41,7 @@ flowchart LR
 
     PL[pipeline.js\nOrchestrator] --> CK[chunk.js\nHeading-aware\n~250 tokens]
     CK --> EM[embed.js\ngemini-embedding-001\nconcurrency=3, retry 429]
-    EM --> QD[(Qdrant\nteam-default)]
+    EM --> QD[(Qdrant\nworkspace collection)]
     PL --> DB[(SQLite\ningested_pages\ncheckpoint)]
 ```
 
@@ -69,7 +69,7 @@ flowchart LR
 
 **Decision:** Self-host Qdrant OSS in Docker on a GCE e2-small VM (~$12–17/month) inside the organisation's GCP project. Data never leaves GCP. The Qdrant API is identical to Qdrant Cloud, so migration later is a one-line config change.
 
-**Collection naming:** One collection per team (`team-default` in Phase 1). In Phase 2, each workspace gets its own collection for strict data isolation.
+**Collection naming:** One collection per team, named after the workspace (e.g. `codp`, `pot`). Collections are created automatically on first ingest.
 
 ---
 
@@ -154,21 +154,12 @@ ingested_pages (page_id, source_type, collection, ingested_at)  -- PRIMARY KEY (
 - **`cors`** — explicit origin allowlist, not wildcard. Configured in `ALLOWED_ORIGINS`.
 - **`express-rate-limit`** — 20 req/min per IP on `/ask-stream` and `/ask-sources`
 - **`zod`** — validates all request bodies at the boundary; invalid input returns 400, never reaches business logic
-- **Auth** (`app/middleware/auth.js`) — Bearer token check against `API_KEY` env var. If `API_KEY` is unset the middleware passes through (local dev). Phase 2 will replace this with Entra ID token verification.
+- **Auth** (`app/middleware/auth.js`) — Bearer token is looked up in the in-memory workspace registry (loaded from `WORKSPACES_JSON` or `workspaces.json`). Matching workspace is attached as `req.workspace`. If no workspaces are configured (local dev), middleware passes through.
 - **Error handler** (`app/middleware/errorHandler.js`) — catch-all, logs with pino, returns `{ error: "Internal server error" }`. Stack traces never leak to clients.
 
 ---
 
-## Phase 2: Multi-Team
+## Potential Next Steps
 
-The single-team design is intentionally forward-compatible:
-
-| Phase 1 | Phase 2 change |
-| --- | --- |
-| One Qdrant collection `team-default` | One collection per workspace |
-| No workspace concept in DB | Add `workspaces` table; foreign key on `conversations` |
-| API key auth (`Authorization: Bearer`) | Replace with Entra ID; resolve workspace from token |
-| Sources config in `.env` | Sources config stored per workspace in DB |
-| Admin UI for one team | Workspace selector + workspace creation flow |
-
-The connector architecture, chunking, and retrieval pipeline are unchanged in Phase 2.
+- **Entra ID SSO** — replace API key auth in `app/middleware/auth.js` with Entra ID token verification; resolve workspace from token claims
+- **Content change detection** — track Confluence `lastModified` per page in `ingested_pages`; re-ingest only changed pages on sync

@@ -103,12 +103,12 @@ function applyMMR(results, k, lambda = config.retrieval.mmrLambda) {
 
 // ── Public search function ────────────────────────────────────────────────────
 
-export async function search(query, topK = config.retrieval.topK, history = []) {
+export async function search(query, topK = config.retrieval.topK, history = [], collection) {
   const expandedQuery = await expandQuery(query, history);
 
   const queryVector = await getEmbedding(expandedQuery);
   // Over-retrieve to give MMR more candidates to diversify from
-  const rawResults = await semanticSearch(queryVector, Math.ceil(topK * 1.5));
+  const rawResults = await semanticSearch(queryVector, Math.ceil(topK * 1.5), collection);
 
   const pruned = pruneByScore(rawResults);
   log.info({ raw: rawResults.length, afterPrune: pruned.length }, "Search results");

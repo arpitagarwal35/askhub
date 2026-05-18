@@ -8,14 +8,7 @@ const SOURCE_TYPES = [
 ];
 
 const SOURCE_FIELDS = {
-  confluence: [
-    { key: "baseUrl", label: "Base URL", placeholder: "https://your-org.atlassian.net" },
-    { key: "email", label: "Email", placeholder: "you@org.com" },
-    { key: "apiToken", label: "API Token", type: "password" },
-    { key: "spaceKey", label: "Space Key", placeholder: "MYSPACE (or leave blank to use page ID)" },
-    { key: "pageId", label: "Root Page ID", placeholder: "123456 (optional)" },
-    { key: "excludePageIds", label: "Exclude Page IDs", placeholder: "123456,789012 (comma-separated, skips page and all children)" },
-  ],
+  confluence: [],
   jira: [
     { key: "baseUrl", label: "Base URL", placeholder: "https://your-org.atlassian.net" },
     { key: "email", label: "Email", placeholder: "you@org.com" },

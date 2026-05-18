@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 
-export default function Layout({ children, onLogout }) {
+export default function Layout({ children, onLogout, workspaceName }) {
   const navClass = ({ isActive }) =>
     `px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
       isActive ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-800 hover:bg-gray-100"
@@ -17,6 +17,11 @@ export default function Layout({ children, onLogout }) {
           <NavLink to="/" end className={navClass}>Chat</NavLink>
           <NavLink to="/sources" className={navClass}>Sources</NavLink>
         </nav>
+        {workspaceName && (
+          <span className="text-xs text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full">
+            {workspaceName}
+          </span>
+        )}
         {onLogout && (
           <button
             onClick={onLogout}

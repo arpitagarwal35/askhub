@@ -171,15 +171,14 @@ echo "    Internal IP: $INTERNAL_IP"
 echo "==> Secret Manager"
 if ! gcloud secrets describe "$SECRET" --project="$PROJECT" &>/dev/null; then
   echo "    Generating and storing config..."
-  API_KEY=$(openssl rand -hex 32)
   QDRANT_API_KEY=$(openssl rand -hex 32)
 
   # Update VM metadata with Qdrant key so it uses it on next start
   gcloud compute instances add-metadata "$VM_NAME" --zone="$ZONE" --project="$PROJECT" \
     --metadata="qdrant-api-key=${QDRANT_API_KEY}"
 
-  SECRET_JSON=$(printf '{"API_KEY":"%s","QDRANT_API_KEY":"%s","QDRANT_URL":"%s"}' \
-    "$API_KEY" "$QDRANT_API_KEY" "http://${INTERNAL_IP}:6333")
+  SECRET_JSON=$(printf '{"QDRANT_API_KEY":"%s","QDRANT_URL":"%s"}' \
+    "$QDRANT_API_KEY" "http://${INTERNAL_IP}:6333")
   [[ -n "$CONFLUENCE_BASE_URL"    ]] && SECRET_JSON=$(json_set "$SECRET_JSON" CONFLUENCE_BASE_URL    "$CONFLUENCE_BASE_URL")
   [[ -n "$CONFLUENCE_EMAIL"       ]] && SECRET_JSON=$(json_set "$SECRET_JSON" CONFLUENCE_EMAIL       "$CONFLUENCE_EMAIL")
   [[ -n "$CONFLUENCE_API_TOKEN"   ]] && SECRET_JSON=$(json_set "$SECRET_JSON" CONFLUENCE_API_TOKEN   "$CONFLUENCE_API_TOKEN")
@@ -194,12 +193,10 @@ if ! gcloud secrets describe "$SECRET" --project="$PROJECT" &>/dev/null; then
 
   echo "$SECRET_JSON" | gcloud secrets create "$SECRET" --project="$PROJECT" --data-file=-
 
-  echo "    API_KEY for your team: $API_KEY"
-  echo "    (This is the only time it is shown — save it now)"
+  echo "    Secret created. Run add-workspace.js to register teams."
 else
   echo "    Already exists, updating connector credentials..."
   CONFIG=$(gcloud secrets versions access latest --secret="$SECRET" --project="$PROJECT")
-  API_KEY=$(json_get "$CONFIG" API_KEY)
   QDRANT_API_KEY=$(json_get "$CONFIG" QDRANT_API_KEY)
 
   [[ -n "$CONFLUENCE_BASE_URL"    ]] && CONFIG=$(json_set "$CONFIG" CONFLUENCE_BASE_URL    "$CONFLUENCE_BASE_URL")
@@ -256,21 +253,28 @@ echo "==> Cloud Run deploy"
 CONFIG=$(gcloud secrets versions access latest --secret="$SECRET" --project="$PROJECT")
 QDRANT_URL=$(json_get "$CONFIG" QDRANT_URL)
 QDRANT_API_KEY=$(json_get "$CONFIG" QDRANT_API_KEY)
-API_KEY=$(json_get "$CONFIG" API_KEY)
 
-ENV_VARS="GOOGLE_CLOUD_PROJECT=${PROJECT},GOOGLE_CLOUD_LOCATION=${REGION},QDRANT_COLLECTION=team-default,QDRANT_URL=${QDRANT_URL},QDRANT_API_KEY=${QDRANT_API_KEY},API_KEY=${API_KEY}"
+# WORKSPACES_JSON is a JSON array stored as a string in the secret's "workspaces" key.
+# We use the ^|^ gcloud delimiter so commas inside the JSON value are not treated as
+# env-var separators.
+WORKSPACES_JSON=$(json_get "$CONFIG" workspaces)
 
-_cf_url=$(json_get "$CONFIG" CONFLUENCE_BASE_URL);  [[ -n "$_cf_url"  ]] && ENV_VARS="${ENV_VARS},CONFLUENCE_BASE_URL=${_cf_url}"
-_cf_em=$(json_get "$CONFIG" CONFLUENCE_EMAIL);      [[ -n "$_cf_em"   ]] && ENV_VARS="${ENV_VARS},CONFLUENCE_EMAIL=${_cf_em}"
-_cf_tok=$(json_get "$CONFIG" CONFLUENCE_API_TOKEN); [[ -n "$_cf_tok"  ]] && ENV_VARS="${ENV_VARS},CONFLUENCE_API_TOKEN=${_cf_tok}"
-_ji_url=$(json_get "$CONFIG" JIRA_BASE_URL);        [[ -n "$_ji_url"  ]] && ENV_VARS="${ENV_VARS},JIRA_BASE_URL=${_ji_url}"
-_ji_em=$(json_get "$CONFIG" JIRA_EMAIL);            [[ -n "$_ji_em"   ]] && ENV_VARS="${ENV_VARS},JIRA_EMAIL=${_ji_em}"
-_ji_tok=$(json_get "$CONFIG" JIRA_API_TOKEN);       [[ -n "$_ji_tok"  ]] && ENV_VARS="${ENV_VARS},JIRA_API_TOKEN=${_ji_tok}"
-_ji_pk=$(json_get "$CONFIG" JIRA_PROJECT_KEY);      [[ -n "$_ji_pk"   ]] && ENV_VARS="${ENV_VARS},JIRA_PROJECT_KEY=${_ji_pk}"
-_sp_tid=$(json_get "$CONFIG" SHAREPOINT_TENANT_ID); [[ -n "$_sp_tid"  ]] && ENV_VARS="${ENV_VARS},SHAREPOINT_TENANT_ID=${_sp_tid}"
-_sp_cid=$(json_get "$CONFIG" SHAREPOINT_CLIENT_ID); [[ -n "$_sp_cid"  ]] && ENV_VARS="${ENV_VARS},SHAREPOINT_CLIENT_ID=${_sp_cid}"
-_sp_cs=$(json_get "$CONFIG" SHAREPOINT_CLIENT_SECRET); [[ -n "$_sp_cs" ]] && ENV_VARS="${ENV_VARS},SHAREPOINT_CLIENT_SECRET=${_sp_cs}"
-_sp_si=$(json_get "$CONFIG" SHAREPOINT_SITE_ID);    [[ -n "$_sp_si"   ]] && ENV_VARS="${ENV_VARS},SHAREPOINT_SITE_ID=${_sp_si}"
+# Build all env vars using | as delimiter so WORKSPACES_JSON (which contains commas)
+# is passed safely in a single --set-env-vars call.
+ENV_VARS="GOOGLE_CLOUD_PROJECT=${PROJECT}|GOOGLE_CLOUD_LOCATION=${REGION}|QDRANT_URL=${QDRANT_URL}|QDRANT_API_KEY=${QDRANT_API_KEY}"
+
+_cf_url=$(json_get "$CONFIG" CONFLUENCE_BASE_URL);  [[ -n "$_cf_url"  ]] && ENV_VARS="${ENV_VARS}|CONFLUENCE_BASE_URL=${_cf_url}"
+_cf_em=$(json_get "$CONFIG" CONFLUENCE_EMAIL);      [[ -n "$_cf_em"   ]] && ENV_VARS="${ENV_VARS}|CONFLUENCE_EMAIL=${_cf_em}"
+_cf_tok=$(json_get "$CONFIG" CONFLUENCE_API_TOKEN); [[ -n "$_cf_tok"  ]] && ENV_VARS="${ENV_VARS}|CONFLUENCE_API_TOKEN=${_cf_tok}"
+_ji_url=$(json_get "$CONFIG" JIRA_BASE_URL);        [[ -n "$_ji_url"  ]] && ENV_VARS="${ENV_VARS}|JIRA_BASE_URL=${_ji_url}"
+_ji_em=$(json_get "$CONFIG" JIRA_EMAIL);            [[ -n "$_ji_em"   ]] && ENV_VARS="${ENV_VARS}|JIRA_EMAIL=${_ji_em}"
+_ji_tok=$(json_get "$CONFIG" JIRA_API_TOKEN);       [[ -n "$_ji_tok"  ]] && ENV_VARS="${ENV_VARS}|JIRA_API_TOKEN=${_ji_tok}"
+_ji_pk=$(json_get "$CONFIG" JIRA_PROJECT_KEY);      [[ -n "$_ji_pk"   ]] && ENV_VARS="${ENV_VARS}|JIRA_PROJECT_KEY=${_ji_pk}"
+_sp_tid=$(json_get "$CONFIG" SHAREPOINT_TENANT_ID); [[ -n "$_sp_tid"  ]] && ENV_VARS="${ENV_VARS}|SHAREPOINT_TENANT_ID=${_sp_tid}"
+_sp_cid=$(json_get "$CONFIG" SHAREPOINT_CLIENT_ID); [[ -n "$_sp_cid"  ]] && ENV_VARS="${ENV_VARS}|SHAREPOINT_CLIENT_ID=${_sp_cid}"
+_sp_cs=$(json_get "$CONFIG" SHAREPOINT_CLIENT_SECRET); [[ -n "$_sp_cs" ]] && ENV_VARS="${ENV_VARS}|SHAREPOINT_CLIENT_SECRET=${_sp_cs}"
+_sp_si=$(json_get "$CONFIG" SHAREPOINT_SITE_ID);    [[ -n "$_sp_si"   ]] && ENV_VARS="${ENV_VARS}|SHAREPOINT_SITE_ID=${_sp_si}"
+[[ -n "$WORKSPACES_JSON" ]] && ENV_VARS="${ENV_VARS}|WORKSPACES_JSON=${WORKSPACES_JSON}"
 
 gcloud run deploy "$SERVICE" \
   --image="${IMAGE}:latest" \
@@ -279,7 +283,7 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --min-instances=0 --max-instances=2 \
   --memory=1Gi --cpu=1 --port=3000 \
-  --set-env-vars="$ENV_VARS" \
+  --set-env-vars="^|^${ENV_VARS}" \
   --vpc-connector="$CONNECTOR" \
   --vpc-egress=private-ranges-only \
   --quiet

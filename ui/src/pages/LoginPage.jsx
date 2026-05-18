@@ -19,7 +19,8 @@ export default function LoginPage({ onLogin }) {
         headers: { Authorization: `Bearer ${trimmed}` },
       });
       if (res.ok) {
-        onLogin(trimmed);
+        const data = await res.json();
+        onLogin(trimmed, data.name ?? "");
       } else if (res.status === 401) {
         setError("Invalid API key.");
       } else {
